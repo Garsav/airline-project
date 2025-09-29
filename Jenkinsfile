@@ -7,36 +7,29 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Gradle Build (Spring)') {
+    stage('Build (Gradle)') {
       steps {
         dir('api-spring') {
+          // make wrapper executable (needed on Linux agents)
+          sh 'chmod +x ./gradlew'
+          // build without tests for now (your repo had a failing test earlier)
           sh './gradlew clean build -x test'
         }
       }
       post {
-        success { archiveArtifacts artifacts: 'api-spring/build/libs/*.jar', fingerprint: true }
-      }
-    }
-
-    stage('Build ETL Image') {
-      steps {
-        sh 'docker build -t airline-etl:ci ./etl'
-      }
-    }
-
-    stage('Build API Image') {
-      steps {
-        sh '''
-          cp api-spring/build/libs/*.jar api-spring/app.jar
-          docker build -t airline-api:ci ./api-spring
-        '''
+        success {
+          // keep the JAR as a build artifact
+          archiveArtifacts artifacts: 'api-spring/build/libs/*.jar', fingerprint: true
+        }
       }
     }
   }
 
   post {
     always {
+      // collect test results if you later enable tests
       junit testResults: 'api-spring/build/test-results/test/*.xml', allowEmptyResults: true
+      // archive any build reports (optional)
       archiveArtifacts artifacts: 'api-spring/build/reports/**', allowEmptyArchive: true
     }
   }
