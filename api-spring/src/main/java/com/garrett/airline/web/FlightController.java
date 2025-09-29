@@ -20,7 +20,6 @@ public class FlightController {
         this.repo = repo;
     }
 
-    // GET /flights with optional filters and sorting
     @GetMapping("/flights")
     public List<Flight> flights(@RequestParam(required = false) String origin,
                                 @RequestParam(required = false, name = "destination") String destination,
@@ -37,14 +36,12 @@ public class FlightController {
             all = repo.findAll();
         }
 
-        // filter by status if provided
         if (status != null && !status.isBlank()) {
             all = all.stream()
-                    .filter(f -> status.equalsIgnoreCase(f.getStatus()))
-                    .toList();
+                     .filter(f -> status.equalsIgnoreCase(f.getStatus()))
+                     .toList();
         }
 
-        // sort logic
         Comparator<Flight> cmp = switch (sortBy) {
             case "airline" -> Comparator.comparing(Flight::getAirline, String.CASE_INSENSITIVE_ORDER);
             case "origin" -> Comparator.comparing(Flight::getOrigin, String.CASE_INSENSITIVE_ORDER);
@@ -52,17 +49,11 @@ public class FlightController {
             case "arrival_utc" -> Comparator.comparing(Flight::getArrival_utc);
             default -> Comparator.comparing(Flight::getDeparture_utc);
         };
-        if ("desc".equalsIgnoreCase(order)) {
-            cmp = cmp.reversed();
-        }
+        if ("desc".equalsIgnoreCase(order)) cmp = cmp.reversed();
 
-        return all.stream()
-                .sorted(cmp)
-                .limit(Math.max(1, Math.min(1000, limit))) // keep limit safe
-                .toList();
+        return all.stream().sorted(cmp).limit(Math.max(1, Math.min(1000, limit))).toList();
     }
 
-    // GET /flights/{id} — lookup single flight
     @GetMapping("/flights/{id}")
     public Optional<Flight> getOne(@PathVariable Integer id) {
         return repo.findById(id);
