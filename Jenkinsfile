@@ -11,7 +11,7 @@ pipeline {
       steps {
         dir('api-spring') {
           sh 'chmod +x ./gradlew'
-          sh './gradlew clean build -x test'
+          sh './gradlew clean build'
         }
       }
       post {
