@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airline-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airline-api
+  template:
+    metadata:
+      labels:
+        app: airline-api
+    spec:
+      containers:
+        - name: airline-api
+          # IMPORTANT: replace YOUR_DOCKERHUB_USER with your Docker Hub username
+          image: docker.io/YOUR_DOCKERHUB_USER/airline-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
