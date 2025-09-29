@@ -15,7 +15,7 @@ spec:
       containers:
         - name: airline-api
           # IMPORTANT: replace YOUR_DOCKERHUB_USER with your Docker Hub username
-          image: docker.io/YOUR_DOCKERHUB_USER/airline-api:latest
+          image: docker.io/garsav/airline-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
