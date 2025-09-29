@@ -3,17 +3,26 @@ pipeline {
   options { timestamps() }
 
   environment {
-    // Jenkins credentials you must create:
-    // - "dockerhub": Username/Password (or PAT) for Docker Hub
-    // - "minikube-kubeconfig": Secret file that contains your ~/.kube/config
-    DOCKERHUB = credentials('dockerhub')
-    KCFG      = credentials('minikube-kubeconfig')
+    // Will fail early if these IDs are not found:
+    DOCKERHUB = credentials('dockerhub')               // username/password or token
+    KCFG      = credentials('minikube-kubeconfig')     // secret file (kubeconfig)
     IMAGE     = "docker.io/${DOCKERHUB_USR}/airline-api:latest"
   }
 
   stages {
     stage('Checkout') {
       steps { checkout scm }
+    }
+
+    stage('Sanity: Credentials & Tools') {
+      steps {
+        sh '''
+          echo "DockerHub user: ${DOCKERHUB_USR}"
+          echo "Kubeconfig file path injected as: $KCFG"
+          # Show kubectl version (must be installed in Jenkins container)
+          kubectl version --client || { echo "kubectl missing in Jenkins container"; exit 1; }
+        '''
+      }
     }
 
     stage('Build (Gradle)') {
@@ -30,7 +39,6 @@ pipeline {
       }
     }
 
-    // Use Jib (no Docker-in-Jenkins required) to push image to Docker Hub
     stage('Containerize & Push (Jib)') {
       steps {
         dir('api-spring') {
@@ -49,7 +57,11 @@ pipeline {
         sh '''
           mkdir -p .k
           cp "$KCFG" .k/config
-          # Apply service first (idempotent)
+
+          echo "Using kubeconfig:"
+          ls -l .k/config || true
+          kubectl --kubeconfig=.k/config config current-context || true
+
           kubectl --kubeconfig=.k/config apply -f k8s/service.yaml
           kubectl --kubeconfig=.k/config apply -f k8s/deployment.yaml
           kubectl --kubeconfig=.k/config rollout status deploy/airline-api --timeout=120s
@@ -60,7 +72,14 @@ pipeline {
 
   post {
     always {
-      junit testResults: 'api-spring/build/test-results/test/*.xml', allowEmptyResults: true
+      script {
+        // Only publish tests if the directory exists (prevents MissingContextVariable noise)
+        if (fileExists('api-spring/build/test-results/test')) {
+          junit testResults: 'api-spring/build/test-results/test/*.xml', allowEmptyResults: true
+        } else {
+          echo 'No test results found; skipping junit publish.'
+        }
+      }
       archiveArtifacts artifacts: 'api-spring/build/reports/**', allowEmptyArchive: true
     }
   }
