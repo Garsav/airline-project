@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Tag(name = "flight-controller", description = "Read-only flight lookup over curated data")
 @RestController
 public class FlightController {
 
