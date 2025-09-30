@@ -43,14 +43,14 @@ pipeline {
       steps {
         dir('api-spring') {
           sh 'chmod +x ./gradlew'
-          // ⛔ Skip tests here to avoid pipeline failure
+          // TEMP FIX: skip tests
           sh './gradlew clean build -x test'
           archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
         }
       }
     }
 
-    stage('Containerize & Push (Jib)') {
+    stage('Containerize & Push (Jib)) {
       steps {
         dir('api-spring') {
           withCredentials([
