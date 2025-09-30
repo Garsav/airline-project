@@ -2,10 +2,8 @@ pipeline {
   agent any
 
   environment {
-    // Image name (repo must exist on Docker Hub)
-    IMG = "docker.io/garsav/airline-api"
-    // Short git SHA used as an immutable tag
-    TAG = ""
+    REGISTRY = 'docker.io'
+    IMAGE    = 'garsav/airline-api'   // change only if you rename the Docker Hub repo
   }
 
   options {
@@ -13,12 +11,12 @@ pipeline {
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout scm
         script {
-          TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          // short git SHA used as image tag
+          TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           echo "Using image tag: ${TAG}"
         }
       }
@@ -27,17 +25,15 @@ pipeline {
     stage('Sanity: Credentials & Tools') {
       steps {
         withCredentials([
-          // Docker Hub (ID = 'dockerhub'): Username + Password (PAT)
           usernamePassword(credentialsId: 'dockerhub',
                            usernameVariable: 'DOCKERHUB_USER',
                            passwordVariable: 'DOCKERHUB_PSW'),
-          // Minikube kubeconfig (ID = 'minikube-kubeconfig') as a secret file
           file(credentialsId: 'minikube-kubeconfig', variable: 'KCFG')
         ]) {
           sh '''
             echo "DockerHub user: $DOCKERHUB_USER"
-            echo "Kubeconfig present at: $KCFG"
-            kubectl version --client || { echo "kubectl missing"; exit 1; }
+            echo "Kubeconfig injected"
+            kubectl version --client
           '''
         }
       }
@@ -48,60 +44,62 @@ pipeline {
         dir('api-spring') {
           sh 'chmod +x ./gradlew'
           sh './gradlew clean build'
-        }
-      }
-      post {
-        always {
-          junit testResults: 'api-spring/build/test-results/test/*.xml', allowEmptyResults: true
-          archiveArtifacts artifacts: 'api-spring/build/reports/**', allowEmptyArchive: true
+          junit 'build/test-results/test/*.xml'
+          archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
         }
       }
     }
 
     stage('Containerize & Push (Jib)') {
-  steps {
-    dir('api-spring') {
-      withCredentials([usernamePassword(credentialsId: 'dockerhub',
-                                        usernameVariable: 'DOCKERHUB_USER',
-                                        passwordVariable: 'DOCKERHUB_PSW')]) {
-        withEnv(["JIB_TO_IMAGE=docker.io/garsav/airline-api:${TAG}"]) {
-          sh "./gradlew jib"
-        }
-      }
-    }
-
-
-
-
-    stage('Deploy to Minikube') {
       steps {
-        withCredentials([file(credentialsId: 'minikube-kubeconfig', variable: 'KCFG')]) {
-          withEnv(["KUBECONFIG=${KCFG}"]) {
-            sh """
-              kubectl get nodes
-              # Update image on the existing deployment (create if missing)
-              if kubectl get deploy/airline-api >/dev/null 2>&1; then
-                kubectl set image deploy/airline-api airline-api=${IMG}:${TAG}
-              else
-                kubectl apply -f k8s/deployment.yaml
-                kubectl apply -f k8s/service.yaml
-                kubectl set image deploy/airline-api airline-api=${IMG}:${TAG} --record=true
-              fi
-
-              kubectl rollout status deploy/airline-api --timeout=90s
-              kubectl get pods -o wide
-            """
+        dir('api-spring') {
+          withCredentials([
+            usernamePassword(credentialsId: 'dockerhub',
+                             usernameVariable: 'DOCKERHUB_USER',
+                             passwordVariable: 'DOCKERHUB_PSW')
+          ]) {
+            // Jib reads creds from env (configured in build.gradle)
+            withEnv(["JIB_TO_IMAGE=${env.REGISTRY}/${env.IMAGE}:${TAG}"]) {
+              sh './gradlew jib'
+            }
           }
         }
       }
     }
 
-  } // <-- end stages
+    stage('Deploy to Minikube') {
+      when {
+        expression { return fileExists('k8s/deployment.yaml') && fileExists('k8s/service.yaml') }
+      }
+      steps {
+        withCredentials([file(credentialsId: 'minikube-kubeconfig', variable: 'KCFG')]) {
+          sh '''
+            set -e
+            export KUBECONFIG="$KCFG"
 
-  post {
-    always {
-      archiveArtifacts artifacts: 'api-spring/build/libs/*.jar', allowEmptyArchive: true
+            # Update image/tag and apply manifests
+            kubectl set image deployment/airline-api airline-api=${REGISTRY}/${IMAGE}:'"${TAG}"' --record || true
+            kubectl apply -f k8s/deployment.yaml
+            kubectl apply -f k8s/service.yaml
+
+            # Wait for rollout, then show resources
+            kubectl rollout status deployment/airline-api --timeout=120s
+            kubectl get svc,deploy,pods -l app=airline-api -o wide
+          '''
+        }
+      }
     }
   }
 
-} // <-- end pipeline
+  post {
+    always {
+      archiveArtifacts artifacts: 'api-spring/build/reports/**', allowEmptyArchive: true
+    }
+    success {
+      echo "✅ Pipeline OK — pushed ${REGISTRY}/${IMAGE}:${TAG} and deployed to Minikube."
+    }
+    failure {
+      echo "❌ Pipeline failed. Check the stage logs above."
+    }
+  }
+}
