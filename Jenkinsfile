@@ -40,16 +40,19 @@ pipeline {
     }
 
     stage('Containerize & Push (Jib)') {
-      steps {
+    steps {
         dir('api-spring') {
-          sh """
-            ./gradlew jib \
-              -Djib.to.image=${IMAGE} \
-              -Djib.to.auth.username=${DOCKERHUB_USR} \
-              -Djib.to.auth.password=${DOCKERHUB_PSW}
-          """
+            withCredentials([usernamePassword(credentialsId: 'dockerhub',
+                                             usernameVariable: 'DOCKERHUB_USER',
+                                             passwordVariable: 'DOCKERHUB_PSW')]) {
+                sh """
+                    ./gradlew jib \
+                        -Djib.to.image=docker.io/${DOCKERHUB_USER}/airline-api:latest \
+                        -Djib.to.auth.username=$DOCKERHUB_USER \
+                        -Djib.to.auth.password=$DOCKERHUB_PSW
+                """
+            }
         }
-      }
     }
 
     stage('Deploy to Minikube') {
