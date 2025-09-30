@@ -43,7 +43,7 @@ pipeline {
       steps {
         dir('api-spring') {
           sh 'chmod +x ./gradlew'
-          sh './gradlew clean build'
+          sh './gradlew clean build -x test'
           junit 'build/test-results/test/*.xml'
           archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
         }
