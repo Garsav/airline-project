@@ -9,38 +9,58 @@ group = 'com.garrett'
 version = '0.0.1-SNAPSHOT'
 
 java {
-    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
 }
 
-repositories { mavenCentral() }
+repositories {
+    mavenCentral()
+}
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly   'org.postgresql:postgresql:42.7.4'
+
+    // OpenAPI/Swagger UI (already using it)
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
-    runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'com.h2database:h2'
 }
 
-tasks.withType(Test).configureEach {
+tasks.test {
     useJUnitPlatform()
 }
+
+/**
+ * -------- JIB (containerize without Docker) ----------
+ * Uses env vars when present, otherwise uses safe defaults.
+ */
+def toImage = System.getenv('JIB_TO_IMAGE')       // e.g. docker.io/garsav/airline-api:<tag> (set by Jenkins)
+def hubUser = System.getenv('DOCKERHUB_USER')     // from Jenkins creds
+def hubPswd = System.getenv('DOCKERHUB_PSW')      // from Jenkins creds
 
 jib {
     from {
         image = 'eclipse-temurin:17-jre'
     }
     to {
-        image = System.getenv('JIB_TO_IMAGE') ?: 'docker.io/garsav/airline-api:latest'
-        auth {
-            username = System.getenv('DOCKERHUB_USER')
-            password = System.getenv('DOCKERHUB_PSW')
+        // FALLBACK so we never pass null into Jib
+        image = (toImage != null && !toImage.trim().isEmpty())
+                ? toImage
+                : 'docker.io/garsav/airline-api:latest'
+
+        // Only set auth if both values exist (avoids null provider errors)
+        if (hubUser != null && hubPswd != null) {
+            auth {
+                username = hubUser
+                password = hubPswd
+            }
         }
     }
     container {
-        jvmFlags = ['-Xms256m','-Xmx512m']
         ports = ['8080']
+        // optional: jvmFlags = ['-Xms256m','-Xmx512m']
     }
 }
