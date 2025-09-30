@@ -29,12 +29,18 @@ tasks.withType(Test).configureEach {
 }
 
 jib {
+    from {
+        image = 'eclipse-temurin:17-jre'
+    }
     to {
-        // fallback; Jenkins passes -D props in the pipeline
-        image = "docker.io/garsav/airline-api:latest"
+        image = System.getenv('JIB_TO_IMAGE') ?: 'docker.io/garsav/airline-api:latest'
+        auth {
+            username = System.getenv('DOCKERHUB_USER')
+            password = System.getenv('DOCKERHUB_PSW')
+        }
     }
     container {
-        ports = ['8080']
         jvmFlags = ['-Xms256m','-Xmx512m']
+        ports = ['8080']
     }
 }
