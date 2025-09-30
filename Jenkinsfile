@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     REGISTRY = 'docker.io'
-    IMAGE    = 'garsav/airline-api'   // change only if you rename the Docker Hub repo
+    IMAGE    = 'garsav/airline-api'   // change only if you rename your Docker Hub repo
   }
 
   options {
@@ -11,13 +11,14 @@ pipeline {
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout scm
         script {
-          // short git SHA used as image tag
-          TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          echo "Using image tag: ${TAG}"
+          // short git SHA used as image tag (store in env to avoid Groovy field warning)
+          env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+          echo "Using image tag: ${env.TAG}"
         }
       }
     }
@@ -43,14 +44,14 @@ pipeline {
       steps {
         dir('api-spring') {
           sh 'chmod +x ./gradlew'
-          // TEMP FIX: skip tests
+          // TEMP: skip tests so pipeline can proceed
           sh './gradlew clean build -x test'
           archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
         }
       }
     }
 
-    stage('Containerize & Push (Jib)) {
+    stage('Containerize & Push (Jib)') {   // ✅ fixed stage name
       steps {
         dir('api-spring') {
           withCredentials([
@@ -58,8 +59,14 @@ pipeline {
                              usernameVariable: 'DOCKERHUB_USER',
                              passwordVariable: 'DOCKERHUB_PSW')
           ]) {
-            withEnv(["JIB_TO_IMAGE=${env.REGISTRY}/${env.IMAGE}:${TAG}"]) {
-              sh './gradlew jib'
+            withEnv(["JIB_IMAGE=${env.REGISTRY}/${env.IMAGE}:${env.TAG}"]) {
+              // use shell vars to avoid Groovy string interpolation with secrets
+              sh '''
+                ./gradlew jib \
+                  -Djib.to.image=$JIB_IMAGE \
+                  -Djib.to.auth.username=$DOCKERHUB_USER \
+                  -Djib.to.auth.password=$DOCKERHUB_PSW
+              '''
             }
           }
         }
@@ -76,12 +83,16 @@ pipeline {
             set -e
             export KUBECONFIG="$KCFG"
 
-            kubectl set image deployment/airline-api airline-api=${REGISTRY}/${IMAGE}:${TAG} --record || true
+            # apply manifests (idempotent)
             kubectl apply -f k8s/deployment.yaml
             kubectl apply -f k8s/service.yaml
 
+            # update image to the freshly pushed tag
+            kubectl set image deployment/airline-api airline-api=''"${REGISTRY}/${IMAGE}:${TAG}"'' --record || true
+
+            # wait and show state
             kubectl rollout status deployment/airline-api --timeout=120s
-            kubectl get svc,deploy,pods -l app=airline-api -o wide
+            kubectl get deploy,svc,pods -l app=airline-api -o wide
           '''
         }
       }
